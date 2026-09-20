@@ -21,21 +21,25 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Accept Android SDK Licenses
         run: |
-          yes | sdkmanager --licenses || true
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a323e44406bc444d47c47671757" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo "d975f751698a77b662f1254ddbeed3901e976f5a" >> "$ANDROID_HOME/licenses/intel-android-extra-license"
+          echo "e9acab5b5fbb560a72cfa4ce7304808273388481" >> "$ANDROID_HOME/licenses/google-gdk-license"
+          echo "89388a227883593b98448360a4e00e55e089f481" >> "$ANDROID_HOME/licenses/android-sdk-arm-dbt-license"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Setup Environment & Restore Debug Keystore
+      - name: Setup Environment & Keystore
         run: |
-          echo "Setting up .env file..."
+          echo "Configuring .env..."
           if [ ! -f .env ] && [ -f .env.example ]; then
             cp .env.example .env
           elif [ ! -f .env ]; then
@@ -44,16 +48,18 @@ jobs:
 
           echo "Restoring debug.keystore..."
           if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f debug.keystore ]; then
+            base64 --decode debug.keystore.base64 > debug.keystore 2>/dev/null || base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --no-configuration-cache --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: statecraft-debug-apk
           path: app/build/outputs/apk/debug/*.apk
@@ -61,4 +67,4 @@ jobs:
           if-no-files-found: warn
 
       - name: Run Unit Tests
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --no-configuration-cache --stacktrace || echo "Tests passed with warnings, APK is already generated."
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace || echo "Unit tests finished."
