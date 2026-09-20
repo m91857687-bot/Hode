@@ -1,11 +1,72 @@
-<div align="center">
+# Statecraft - لعبة إدارة الدول والسيادة العالمية 🌐
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+تطبيق أندرويد أصيل (Native Android) بالكامل مبني باستخدام **Kotlin** و **Jetpack Compose** بأحدث معايير التصميم (Material Design 3).
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 🚀 نبذة عن المشروع (Overview)
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+لعبة استراتيجية ومحاكاة جيوسياسية واقتصادية متكاملة تضعك في مقعد القيادة كرئيس لدولة كبرى، لإدارة الميزانية، بناء المشاريع القومية، التفاوض الاستثماري مع الشركات الدولية، وتوسيع نفوذك الاقتصادي والدبلوماسي على خريطة العالم.
 
-</div>
+### 🌟 أبرز الأنظمة والميزات:
+1. **اختيار وقيادة الدولة:** الاختيار من بين 11 دولة كبرى (السعودية، مصر، الإمارات، أمريكا، الصين، ألمانيا، اليابان، بريطانيا، الهند، البرازيل، تركيا) مع مراسم تنصيب سيادية.
+2. **خريطة العالم التفاعلية (Interactive Canvas):** تحريك وسحب وتكبير/تصغير مع 4 فلاتر (سياسي، الناتج المحلي، نفوذ اللاعب، والعلاقات الدولية).
+3. **المحرك الاقتصادي والميزانية:** محاكاة شهرية دقيقة للإيرادات (ضرائب، شركات الدولة، جمارك، صادرات، سياحة) والمصروفات (تعليم، صحة، بنية تحتية، دفاع، دعم، خدمة دين).
+4. **المشاريع الوطنية الكبرى:** تشييد الموانئ، محطات الطاقة المتجددة، سكك الحديد السريعة، مصافي البتروكيماويات، والمدن التكنولوجية.
+5. **طاولة التفاوض الاستثماري (FDI Negotiation):** عروض استثمارية دورية من شركات عالمية مع تعديل نسب الملكية والضرائب والتوظيف المحلي وتقييم ذكاء اصطناعي فوري.
+6. **الاستثمار الخارجي والنفوذ الدولي:** تملك أصول استثمارية في الدول الأخرى لتنمية النفوذ الاقتصادي والدبلوماسي.
+7. **محفظة الشركات الوطنية:** إدارة وتأسيس شركات جديدة وخصخصة حصص لدعم الخزينة.
+8. **الأحداث الجيوسياسية الديناميكية:** أزمات وفرص مفاجئة تتطلب قرارات سيادية مدروسة.
+9. **حفظ محلي تلقائي (Persistence):** حفظ واستعادة حالة اللعبة بالكامل عبر SharedPreferences و Moshi.
+
+---
+
+## 🛠️ البناء والتشغيل (How to Build & Run)
+
+### 1. عبر Android Studio
+1. انسخ المستودع (Clone Repository):
+   ```bash
+   git clone https://github.com/<username>/<repo-name>.git
+   ```
+2. افتح المجلد في **Android Studio** (نسخة Hedgehog أو أحدث).
+3. انتظر اكتمال مزامنة Gradle (Gradle Sync).
+4. اضغط على زر **Run ▶** لتشغيل التطبيق على جهاز حقيقي أو محاكي (Emulator).
+
+### 2. عبر سطر الأوامر (Command Line / Gradle Wrapper)
+
+- **بناء ملف APK التجريبي (Debug APK):**
+  - أنظمة Linux / macOS:
+    ```bash
+    chmod +x gradlew
+    ./gradlew :app:assembleDebug
+    ```
+  - نظام Windows:
+    ```cmd
+    gradlew.bat :app:assembleDebug
+    ```
+  *سيتم إنشاء ملف الـ APK في المسار:* `app/build/outputs/apk/debug/app-debug.apk`
+
+- **تشغيل الاختبارات البرمجية (Unit & Robolectric Tests):**
+  ```bash
+  ./gradlew :app:testDebugUnitTest
+  ```
+
+---
+
+## ⚙️ أتمتة البناء في GitHub (GitHub Actions CI)
+
+يحتوي المشروع على Workflow جاهز في `.github/workflows/android.yml`:
+- يقوم بفحص وبناء المشروع آلياً عند كل `push` أو `pull_request` لفرعي `main` و `master`.
+- يقوم بتثبيت بيئة Java (JDK 21).
+- يقوم بتنفيذ كافة الاختبارات الآلية (`testDebugUnitTest`).
+- يقوم بإنشاء ملف الـ APK ورفعه كـ **Artifact** قابل للتحميل المباشر بعد انتهاء الـ Build من تبويب **Actions** في جيتهاب.
+
+---
+
+## 🏛️ التقنيات المستخدمة (Tech Stack)
+
+- **اللغة:** Kotlin 2.0+
+- **واجهة المستخدم:** Jetpack Compose (Material 3)
+- **المعمارية:** MVVM (Model-View-ViewModel) + StateFlow + Coroutines
+- **التخزين المحلي:** SharedPreferences + Moshi JSON Serialization
+- **الاختبارات:** Robolectric & JUnit & Roborazzi

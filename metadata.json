@@ -1,0 +1,6 @@
+{
+  "name": "إدارة الدول: Statecraft",
+  "description": "لعبة استراتيجية ومحاكاة إدارة دول، اقتصاد واستثمارات ونفوذ عالمي",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
