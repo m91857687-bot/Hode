@@ -11,6 +11,7 @@ import com.example.model.GameState
 import com.example.model.InfluenceEntry
 import com.example.model.InfluenceHistoryPoint
 import com.example.model.InvestorType
+import com.example.model.MarketCommodity
 import com.example.model.MonthlyBudget
 import com.example.model.OfferStatus
 import com.example.model.OutboundInvestment
@@ -19,6 +20,7 @@ import com.example.model.OutboundStatus
 import com.example.model.Project
 import com.example.model.ProjectCategory
 import com.example.model.ProjectStatus
+import com.example.model.TradeContract
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -28,66 +30,17 @@ object GameEngine {
         country: Country,
         companies: List<Company>,
         foreignProjects: List<Project>,
-        outboundInvestments: List<OutboundInvestment> = emptyList()
+        outboundInvestments: List<OutboundInvestment> = emptyList(),
+        tradeContracts: List<TradeContract> = emptyList(),
+        marketCommodities: Map<String, MarketCommodity> = emptyMap()
     ): MonthlyBudget {
-        // Monthly GDP component
-        val monthlyGdp = country.gdpBillions / 12.0
-
-        // 1. Revenues
-        val taxRevenues = monthlyGdp * country.taxRate
-        val stateCompanyProfits = companies
-            .filter { it.originCountryId == country.id && it.isStateOwned }
-            .sumOf { it.stateMonthlyDividendsMillions / 1000.0 }
-        
-        val tradeSurplusPortion = max(0.0, country.tradeSurplusBillions) * 0.10
-        val customsAndTariffs = max(0.12, (tradeSurplusPortion + (country.tradePower * 0.08)) / 12.0)
-        
-        val resourceExports = ((country.energyProduction * 0.20) + (country.agriculturalProduction * 0.08)) / 12.0
-        
-        val foreignProjectDividends = foreignProjects
-            .filter { it.isCompleted && it.investorCountryId == country.id }
-            .sumOf { it.monthlyReturnBillions }
-            
-        val outboundAssetDividends = outboundInvestments
-            .filter { it.status == OutboundStatus.ACTIVE }
-            .sumOf { it.monthlyDividendsBillions }
-            
-        val totalForeignDividends = foreignProjectDividends + outboundAssetDividends
-        
-        val tourismAndServices = ((country.stability * 0.06) + (country.infrastructureIndex * 0.04) + (country.culturalInfluence * 0.03)) / 12.0
-
-        // 2. Expenses
-        val education = (country.populationMillions * 0.015 * (country.educationIndex / 100.0)) / 12.0
-        val health = (country.populationMillions * 0.018 * (country.healthIndex / 100.0)) / 12.0
-        val infraMaintenance = (country.infrastructureIndex * 0.14) / 12.0
-        val military = (country.militaryIndex * 0.16) / 12.0
-        val subsidies = (country.populationMillions * 0.014 * (115 - country.stability) / 100.0) / 12.0
-        val rnd = (country.industrialProduction * 0.08 + country.educationIndex * 0.05) / 12.0
-        
-        // Tiered Debt Interest Service based on Debt-to-GDP risk
-        val debtRatio = country.debtToGdpRatioPercent
-        val interestAnnualRate = when {
-            debtRatio > 100.0 -> 0.085
-            debtRatio > 70.0 -> 0.060
-            debtRatio > 40.0 -> 0.042
-            else -> 0.030
-        }
-        val debtService = (country.sovereignDebtBillions * interestAnnualRate) / 12.0
-
-        return MonthlyBudget(
-            taxRevenues = taxRevenues,
-            stateCompanyProfits = stateCompanyProfits,
-            customsAndTariffs = customsAndTariffs,
-            resourceExports = resourceExports,
-            foreignInvestmentsDividends = totalForeignDividends,
-            tourismAndServices = tourismAndServices,
-            educationBudget = education,
-            healthcareBudget = health,
-            infrastructureMaintenance = infraMaintenance,
-            militaryAndSecurity = military,
-            socialSubsidies = subsidies,
-            researchAndDev = rnd,
-            debtInterestService = debtService
+        return EconomyEngine.calculateMonthlyBudget(
+            country = country,
+            companies = companies,
+            foreignProjects = foreignProjects,
+            outboundInvestments = outboundInvestments,
+            tradeContracts = tradeContracts,
+            marketCommodities = marketCommodities
         )
     }
 
@@ -103,7 +56,16 @@ object GameEngine {
             nextYear += 1
         }
 
-        // 2. Process Domestic Projects
+        // 2. Process Global Market Commodities (Supply/Demand dynamic pricing)
+        val updatedMarketCommodities = MarketEngine.updateCommodityPrices(state.marketCommodities)
+
+        // 3. Process Trade Contracts (Fulfillment, Transport, Tariffs, Seller/Buyer balances)
+        val (contractsAfterTrade, countriesAfterTrade) = TradeEngine.processMonthlyTradeContracts(
+            contracts = state.tradeContracts,
+            countries = state.countries
+        )
+
+        // 4. Process Domestic Projects
         val updatedDomestic = mutableListOf<Project>()
         var playerGdpDelta = 0.0
         var playerIndustryDelta = 0
@@ -120,7 +82,6 @@ object GameEngine {
             if (proj.status == ProjectStatus.UNDER_CONSTRUCTION) {
                 val rem = proj.remainingMonths - 1
                 if (rem <= 0) {
-                    // Project Completed!
                     val completed = proj.copy(
                         remainingMonths = 0,
                         isCompleted = true,
@@ -145,7 +106,7 @@ object GameEngine {
             }
         }
 
-        // 3. Process Foreign Projects & Outbound Investments
+        // 5. Process Foreign Projects & Outbound Investments
         val updatedForeign = mutableListOf<Project>()
         val influenceGains = mutableMapOf<Pair<String, String>, Int>()
 
@@ -164,9 +125,8 @@ object GameEngine {
             }
         }
 
-        // Update Outbound Investments risks & status
         val updatedOutbound = state.outboundInvestments.map { inv ->
-            val hostCountry = state.countries[inv.targetCountryId]
+            val hostCountry = countriesAfterTrade[inv.targetCountryId]
             if (hostCountry != null && hostCountry.relationsWithPlayer < 20 && inv.status == OutboundStatus.ACTIVE) {
                 inv.copy(status = OutboundStatus.THREATENED, riskLevel = OutboundRiskLevel.CRITICAL)
             } else {
@@ -174,7 +134,7 @@ object GameEngine {
             }
         }
 
-        // 4. Update Influence Network (5 Pillars)
+        // 6. Update Influence Network
         val updatedInfluence = state.influenceNetwork.map { entry ->
             val gain = influenceGains[Pair(entry.sourceCountryId, entry.targetCountryId)] ?: 0
             if (gain > 0) {
@@ -188,61 +148,63 @@ object GameEngine {
             }
         }
 
-        // 5. Update Countries (Dynamic Interconnected Economy)
-        val updatedCountries = state.countries.toMutableMap()
-        for ((cId, country) in state.countries) {
+        // 7. Process Factories for All Countries (Material shortage check, output, dividends)
+        val countriesWithFactories = countriesAfterTrade.mapValues { (_, c) ->
+            val processedFacts = IndustryEngine.processMonthlyFactories(c, contractsAfterTrade)
+            c.copy(factories = processedFacts)
+        }
+
+        // 8. Autonomous AI Simulation for Non-Player Nations
+        val (countriesAfterAI, contractsAfterAI) = AIEngine.processAITick(
+            nonPlayerCountries = countriesWithFactories,
+            playerCountryId = playerCountryId,
+            activeContracts = contractsAfterTrade
+        )
+
+        // 9. Update Macro-Economy & Financials for Player and All Countries
+        val updatedCountries = countriesAfterAI.toMutableMap()
+        for ((cId, country) in countriesAfterAI) {
             val isPlayer = (cId == playerCountryId)
-            val budget = calculateMonthlyBudget(country, state.companies, updatedForeign, if (isPlayer) updatedOutbound else emptyList())
+            val budget = EconomyEngine.calculateMonthlyBudget(
+                country = country,
+                companies = state.companies,
+                foreignProjects = updatedForeign,
+                outboundInvestments = if (isPlayer) updatedOutbound else emptyList(),
+                tradeContracts = contractsAfterAI,
+                marketCommodities = updatedMarketCommodities
+            )
             val netCash = budget.netCashflow
 
             var newTreasury = country.treasuryBillions + netCash
             var newDebt = country.sovereignDebtBillions
 
             if (newTreasury < 0.0) {
-                // Deficit forces debt increase
                 newDebt += (-newTreasury)
                 newTreasury = 0.0
             } else if (netCash > 1.0 && newDebt > 0.0) {
-                // Modest voluntary debt payoff from budget surplus
                 val debtPayoff = (netCash * 0.15).coerceAtMost(newDebt)
                 newDebt -= debtPayoff
                 newTreasury -= debtPayoff
             }
 
-            // Monthly GDP calculation
-            val monthlyBaseGrowth = (country.gdpGrowthPercent / 100.0) / 12.0
+            val newGrowth = EconomyEngine.calculateNewGdpGrowth(country, budget, country.activeFactories.size)
+            val monthlyBaseGrowth = (newGrowth / 100.0) / 12.0
             var newGdp = country.gdpBillions * (1.0 + monthlyBaseGrowth)
 
-            // Dynamic Inflation
-            var newInflation = country.inflationRate
-            val deficitToGdpRatio = if (newGdp > 0 && netCash < 0) ((-netCash * 12.0) / newGdp) else 0.0
-            if (deficitToGdpRatio > 0.05) {
-                newInflation += 0.08 // High deficit pushes inflation up
-            } else if (newInflation > 2.5) {
-                newInflation -= 0.04 // Mean reversion toward 2.5%
-            }
-            newInflation = newInflation.coerceIn(0.5, 35.0)
+            val newInflation = EconomyEngine.calculateNewInflation(country, budget)
+            val newUnemployment = EconomyEngine.calculateNewUnemployment(
+                country = country,
+                gdpGrowth = newGrowth,
+                totalWorkers = country.factories.filter { !it.isPaused }.sumOf { it.actualWorkers }
+            )
+            val newStability = EconomyEngine.calculateNewStability(country, budget)
 
-            // Dynamic Unemployment
-            var newUnemployment = country.unemploymentRate
-            if (isPlayer && playerJobsCreatedMonth > 0) {
-                val workforceEstimateMillions = country.populationMillions * 0.45
-                val jobDeltaPercent = (playerJobsCreatedMonth.toDouble() / 1_000_000.0 / workforceEstimateMillions) * 100.0
-                newUnemployment = (newUnemployment - jobDeltaPercent).coerceAtLeast(2.0)
-            } else if (newUnemployment > 4.5 && country.gdpGrowthPercent > 3.0) {
-                newUnemployment = (newUnemployment - 0.02).coerceAtLeast(2.2)
-            } else if (country.taxRate > 0.28) {
-                newUnemployment = (newUnemployment + 0.04).coerceAtMost(20.0)
-            }
-
-            // Indexes and production
             var newIndustry = country.industryIndex
             var newInfra = country.infrastructureIndex
             var newEnergy = country.energyIndex
             var newAgri = country.agricultureIndex
             var newEdu = country.educationIndex
             var newHealth = country.healthIndex
-            var newStability = country.stability
             var newTradePower = country.tradePower
 
             if (isPlayer) {
@@ -253,16 +215,10 @@ object GameEngine {
                 newAgri = (newAgri + playerAgriDelta).coerceIn(10, 99)
                 newEdu = (newEdu + playerEduDelta).coerceIn(10, 99)
                 newHealth = (newHealth + playerHealthDelta).coerceIn(10, 99)
-                newStability = (newStability + playerStabilityDelta).coerceIn(10, 99)
                 newTradePower = (newTradePower + playerTradePowerDelta).coerceIn(10.0, 99.0)
-            } else {
-                // AI Simulation
-                if ((1..8).random() == 1) {
-                    newGdp += Random.nextDouble(0.5, 2.5)
-                }
             }
 
-            // Recalculate 5 Pillars of Influence for the country
+            // Recalculate 5 Pillars of Influence
             val newEconInf = ((newGdp / 300.0) * 15.0 + (newIndustry * 0.35)).toInt().coerceIn(10, 99)
             val newTradeInf = (newTradePower * 0.7 + (newInfra * 0.3)).toInt().coerceIn(10, 99)
             val newDiplInf = (newStability * 0.5 + country.relationsWithPlayer * 0.5).toInt().coerceIn(10, 99)
@@ -271,21 +227,19 @@ object GameEngine {
 
             updatedCountries[cId] = country.copy(
                 gdpBillions = newGdp,
+                gdpGrowthPercent = newGrowth,
                 treasuryBillions = newTreasury,
                 sovereignDebtBillions = newDebt,
                 inflationRate = newInflation,
                 unemploymentRate = newUnemployment,
+                stability = newStability,
                 industryIndex = newIndustry,
                 infrastructureIndex = newInfra,
                 energyIndex = newEnergy,
                 agricultureIndex = newAgri,
                 educationIndex = newEdu,
                 healthIndex = newHealth,
-                stability = newStability,
                 tradePower = newTradePower,
-                industrialProduction = newIndustry,
-                energyProduction = newEnergy,
-                agriculturalProduction = newAgri,
                 monthlyRevenue = budget.totalRevenue,
                 monthlyExpenses = budget.totalExpense,
                 economicInfluence = newEconInf,
@@ -332,6 +286,84 @@ object GameEngine {
             culturalPart = playerCurrent.culturalInfluence
         )).takeLast(24)
 
+        // 9. Update Integrated Pillars: Energy, Water, Labor, Gov, Research, Military
+        val currentEnergy = state.energyGrid ?: EnergyWaterEngine.initializeEnergyGrid(playerCurrent)
+        val updatedEnergy = EnergyWaterEngine.calculateMonthlyEnergy(currentEnergy, playerCurrent, playerCurrent.factories)
+
+        val currentWater = state.waterGrid ?: EnergyWaterEngine.initializeWaterGrid(playerCurrent)
+        val updatedWater = EnergyWaterEngine.calculateMonthlyWater(currentWater, playerCurrent, playerCurrent.factories.size)
+
+        val currentGov = state.governmentServices ?: GovernmentEngine.initializeGovernmentServices(playerCurrent)
+        val updatedGov = GovernmentEngine.processMonthlyGovernmentTick(currentGov, playerCurrent)
+
+        val currentLabor = state.laborMarket ?: LaborMarketEngine.initializeLaborMarket(playerCurrent)
+        val updatedLabor = LaborMarketEngine.processMonthlyLaborTick(
+            current = currentLabor,
+            country = playerCurrent,
+            healthSatisfactionBonus = if (playerCurrent.healthIndex > 70) 2 else 0,
+            educationSatisfactionBonus = if (playerCurrent.educationIndex > 70) 2 else 0,
+            powerShortagePenalty = if (updatedEnergy.hasShortage) 5 else 0,
+            waterShortagePenalty = if (updatedWater.hasWaterShortage) 4 else 0
+        )
+
+        val currentResearch = state.researchState ?: ResearchEngine.initializeResearchState(playerCurrent)
+        val updatedResearch = ResearchEngine.processMonthlyResearchTick(currentResearch, playerCurrent)
+
+        val currentMilitary = state.militaryState ?: MilitaryEngine.initializeMilitaryState(playerCurrent)
+        val updatedMilitary = MilitaryEngine.processMonthlyMilitaryTick(currentMilitary, playerCurrent)
+
+        // Update Resource Stockpiles & Inventory
+        val updatedInventory = state.resourceInventory.toMutableMap()
+        for ((_, res) in playerCurrent.resources) {
+            val code = res.resourceType.code
+            val prevStock = updatedInventory[code] ?: (res.monthlyCapacityUnits * 2.0)
+            updatedInventory[code] = prevStock + res.currentProductionUnits
+        }
+
+        // Generate Monthly Report with causality breakdown (Section 56 & 57)
+        val gdpDelta = playerCurrent.gdpBillions - player.gdpBillions
+        val gdpPct = if (player.gdpBillions > 0) (gdpDelta / player.gdpBillions) * 100.0 else 0.0
+        val revM = playerCurrent.monthlyRevenue * 1000.0
+        val expM = playerCurrent.monthlyExpenses * 1000.0
+        val netM = revM - expM
+
+        val gdpCauses = mutableListOf<String>()
+        if (playerGdpDelta > 0) gdpCauses.add("المشاريع المكتملة +${String.format("%.1f", playerGdpDelta)}B$")
+        if (playerCurrent.tradePower >= player.tradePower) gdpCauses.add("نمو الصادرات والتجارة الدولية +1.1%")
+        if (playerCurrent.factories.any { !it.isPaused }) gdpCauses.add("الإنتاج والتحويل الصناعي +0.8%")
+        if (updatedEnergy.hasShortage) gdpCauses.add("عجز شبكة الكهرباء والطاقة -0.6%")
+        if (gdpCauses.isEmpty()) gdpCauses.add("استقرار الاستهلاك المحلي والخدمات +0.5%")
+
+        val monthlyReport = com.example.model.MonthlyReport(
+            monthNumber = nextMonth,
+            year = nextYear,
+            gdpGrowthPercent = gdpPct,
+            gdpCauses = gdpCauses,
+            monthlyRevenueMillions = revM,
+            monthlyExpenseMillions = expM,
+            netSurplusOrDeficitMillions = netM,
+            revenueCauses = listOf(
+                "عوائد الضرائب والرسوم الجمركية",
+                "أرباح المصانع والشركات السيادية",
+                "عوائد صادرات النفط والمعادن والطاقة"
+            ),
+            expenseCauses = listOf(
+                "رواتب موظفي الدولة والخدمات المدنية",
+                "موازنة الدفاع والأمن والجاهزية",
+                "صيانة الشبكات والبنية التحتية وفوائد الدين"
+            ),
+            newJobsCount = playerJobsCreatedMonth.coerceAtLeast(4200),
+            industrialGrowthPercent = (playerCurrent.industryIndex - player.industryIndex).toDouble().coerceAtLeast(0.4),
+            exportValueMillions = (playerCurrent.tradePower * 2.5).coerceAtLeast(8.0),
+            researchProgressNotes = updatedResearch.activeResearchTech?.let { "التقدم في ${it.titleAr}: ${it.progressPercent}%" },
+            satisfactionChangePoints = playerCurrent.stability - player.stability,
+            topHighlights = listOf(
+                "الناتج المحلي: ${EconomyScaleEngine.formatCurrency(playerCurrent.gdpBillions)}",
+                "صافي ميزانية الشهر: ${if (netM >= 0) "+" else ""}${String.format("%.1f", netM)}M$",
+                "الاستقرار ومؤشر الرضا: ${playerCurrent.stability}%"
+            )
+        )
+
         return state.copy(
             gameYear = nextYear,
             gameMonth = nextMonth,
@@ -345,6 +377,14 @@ object GameEngine {
             gdpHistory = updatedGdpHistory,
             treasuryHistory = updatedTreasuryHistory,
             inflationHistory = updatedInflationHistory,
+            energyGrid = updatedEnergy,
+            waterGrid = updatedWater,
+            governmentServices = updatedGov,
+            laborMarket = updatedLabor,
+            researchState = updatedResearch,
+            militaryState = updatedMilitary,
+            resourceInventory = updatedInventory,
+            monthlyReport = monthlyReport,
             activePendingEvent = pendingEvent,
             lastSaveTimeMillis = System.currentTimeMillis()
         )
@@ -353,7 +393,7 @@ object GameEngine {
     private fun createDiversifiedForeignOffer(senderId: String, senderFlag: String, senderNameAr: String): ForeignOffer {
         val id = "offer_${System.currentTimeMillis()}"
         return when (senderId) {
-            "JP" -> ForeignOffer(
+            "JP", "JPN" -> ForeignOffer(
                 id = id,
                 proposingCountryId = senderId,
                 foreignCompanyName = "تكتل تويوتا وسوفت بنك للتقنية $senderFlag",
@@ -378,7 +418,7 @@ object GameEngine {
                 aiAcceptanceLikelihood = 82,
                 aiFeedbackMessage = "المستثمر التقني الياباني يرحب بالتعاون ويركز على المهارات وحماية الملكية الفكرية."
             )
-            "DE" -> ForeignOffer(
+            "DE", "DEU" -> ForeignOffer(
                 id = id,
                 proposingCountryId = senderId,
                 foreignCompanyName = "كونسورتيوم سيمنز وبوش الصناعي $senderFlag",
@@ -402,7 +442,7 @@ object GameEngine {
                 aiAcceptanceLikelihood = 78,
                 aiFeedbackMessage = "الشركة الألمانية حريصة على الاستقرار والبنية التحتية واعتماد موردين محليين."
             )
-            "CN" -> ForeignOffer(
+            "CN", "CHN" -> ForeignOffer(
                 id = id,
                 proposingCountryId = senderId,
                 foreignCompanyName = "مؤسسة الموانئ والتشييد الصينية (CCCC) $senderFlag",
@@ -426,7 +466,7 @@ object GameEngine {
                 aiAcceptanceLikelihood = 85,
                 aiFeedbackMessage = "المستثمر الصيني الاستراتيجي يقدم سيولة ضخمة بشرط امتيازات لوجستية وتخفيض الضرائب."
             )
-            "US" -> ForeignOffer(
+            "US", "USA" -> ForeignOffer(
                 id = id,
                 proposingCountryId = senderId,
                 foreignCompanyName = "صندوق بلاك روك ووول ستريت للنمو $senderFlag",

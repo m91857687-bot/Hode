@@ -5,7 +5,8 @@ enum class CountryArchetype(val titleAr: String) {
     INDUSTRIAL("عملاق صناعي وتصديري"),
     RESOURCE_RICH("قوة طاقة وموارد طبيعية"),
     TRADE_HUB("مركز تجاري ولوجستي عالمي"),
-    EMERGING_GIANT("اقتصاد صاعد واعد")
+    EMERGING_GIANT("اقتصاد صاعد واعد"),
+    DEVELOPING("اقتصاد نامٍ وسياحي")
 }
 
 enum class DiplomaticRelationStatus(val titleAr: String, val colorHex: Long) {
@@ -63,7 +64,15 @@ data class Country(
     val aiArchetype: CountryArchetype = CountryArchetype.INDUSTRIAL,
     val mapX: Float = 0.5f,
     val mapY: Float = 0.5f,
-    val relationsWithPlayer: Int = 50 // 0 (hostile) to 100 (allied)
+    val relationsWithPlayer: Int = 50, // 0 (hostile) to 100 (allied)
+    val iso3: String = id,
+    val continent: Continent = Continent.ASIA,
+    val tier: EconomicTier = EconomicTier.MEDIUM,
+    val taxProfile: TaxProfile = TaxProfile(corporateTaxRate = taxRate),
+    val resources: Map<String, CountryResource> = emptyMap(),
+    val factories: List<Factory> = emptyList(),
+    val definition: CountryDefinition? = null,
+    val countryState: CountryState? = null
 ) {
     // Aliases for compatibility
     val infrastructure: Int get() = infrastructureIndex
@@ -72,6 +81,7 @@ data class Country(
     val militaryStrength: Int get() = militaryIndex
     val foreignReservesBillions: Double get() = treasuryBillions * 0.85 + (gdpBillions * 0.05)
     val industryProductionScore: Int get() = industrialProduction
+    val activeFactories: List<Factory> get() = factories.filter { !it.isPaused }
 
     val nationalPowerScore: Int
         get() {

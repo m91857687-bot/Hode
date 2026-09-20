@@ -7,8 +7,12 @@ import com.example.data.GameRepository
 import com.example.data.ProjectTemplates
 import com.example.data.WorldData
 import com.example.engine.GameEngine
+import com.example.engine.IndustryEngine
+import com.example.engine.TradeEngine
 import com.example.model.Company
 import com.example.model.EventChoice
+import com.example.model.Factory
+import com.example.model.FactoryType
 import com.example.model.ForeignOffer
 import com.example.model.GameSpeed
 import com.example.model.GameState
@@ -21,6 +25,17 @@ import com.example.model.OutboundRiskLevel
 import com.example.model.OutboundStatus
 import com.example.model.Project
 import com.example.model.ProjectStatus
+import com.example.model.ResourceType
+import com.example.model.TaxProfile
+import com.example.model.TradeContract
+import com.example.engine.EconomyScaleEngine
+import com.example.engine.EnergyWaterEngine
+import com.example.engine.GovernmentEngine
+import com.example.engine.LaborMarketEngine
+import com.example.engine.ResearchEngine
+import com.example.engine.MilitaryEngine
+import com.example.engine.EconomyEngine
+import com.example.model.PublicServiceType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,20 +72,47 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         val companies = WorldData.getInitialCompanies(countryId)
         val influence = WorldData.getInitialInfluenceNetwork(countryId, initialCountries.keys.toList())
+        val market = WorldData.getInitialMarketCommodities()
+        val trades = WorldData.getInitialTradeContracts(countryId)
+
+        val playerCountry = initialCountries[countryId]
+        val energy = playerCountry?.let { EnergyWaterEngine.initializeEnergyGrid(it) }
+        val water = playerCountry?.let { EnergyWaterEngine.initializeWaterGrid(it) }
+        val gov = playerCountry?.let { GovernmentEngine.initializeGovernmentServices(it) }
+        val labor = playerCountry?.let { LaborMarketEngine.initializeLaborMarket(it) }
+        val research = playerCountry?.let { ResearchEngine.initializeResearchState(it) }
+        val military = playerCountry?.let { MilitaryEngine.initializeMilitaryState(it) }
+
+        val inventory = mutableMapOf<String, Double>()
+        playerCountry?.resources?.values?.forEach { res ->
+            inventory[res.resourceType.code] = res.monthlyCapacityUnits * 2.5
+        }
 
         _uiState.update { current ->
             current.copy(
                 playerCountryId = countryId,
+                playerGems = 150,
                 countries = initialCountries,
                 companies = companies,
                 influenceNetwork = influence,
+                marketCommodities = market,
+                tradeContracts = trades,
+                resourceInventory = inventory,
+                energyGrid = energy,
+                waterGrid = water,
+                governmentServices = gov,
+                laborMarket = labor,
+                researchState = research,
+                militaryState = military,
                 gameYear = 2026,
                 gameMonth = 1,
                 gameSpeed = GameSpeed.PAUSED,
                 currentTab = NavigationTab.MAP,
                 activePendingEvent = null,
                 activeNegotiationOffer = null,
-                selectedCountryIdForDossier = null
+                selectedCountryIdForDossier = null,
+                isInventoryDialogOpen = false,
+                isMonthlyReportOpen = false
             )
         }
         saveGame()
@@ -567,6 +609,250 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     put(target.id, updatedTarget)
                 },
                 influenceNetwork = updatedInfluence
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun setMapFilterMode(mode: MapFilterMode) {
+        _uiState.update { it.copy(mapFilterMode = mode) }
+    }
+
+    fun updateTaxProfile(incomeTax: Double, corporateTax: Double, vat: Double, tariff: Double) {
+        val player = _uiState.value.playerCountry ?: return
+        val newProfile = TaxProfile(
+            incomeTaxRate = incomeTax.coerceIn(0.0, 0.60),
+            corporateTaxRate = corporateTax.coerceIn(0.0, 0.50),
+            vatRate = vat.coerceIn(0.0, 0.35),
+            importTariffRate = tariff.coerceIn(0.0, 0.40)
+        )
+        val updatedPlayer = player.copy(
+            taxProfile = newProfile,
+            taxRate = newProfile.effectiveTaxRate
+        )
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+    }
+
+    fun updateTaxProfile(newProfile: TaxProfile) {
+        val player = _uiState.value.playerCountry ?: return
+        val updatedPlayer = player.copy(
+            taxProfile = newProfile,
+            taxRate = newProfile.effectiveTaxRate
+        )
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+    }
+
+    fun buildFactory(type: FactoryType, customName: String? = null): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val result = IndustryEngine.buildFactory(player, type, customName) ?: return false
+        val (updatedPlayer, _) = result
+
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun upgradeFactory(factoryId: String): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val updatedPlayer = IndustryEngine.upgradeFactory(player, factoryId) ?: return false
+
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun toggleFactoryPause(factoryId: String): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val updatedPlayer = IndustryEngine.toggleFactoryPause(player, factoryId)
+
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun privatizeFactory(factoryId: String, stakeRatio: Double = 0.49): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val updatedPlayer = IndustryEngine.privatizeFactory(player, factoryId, stakeRatio) ?: return false
+
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun createTradeContract(
+        sellerCountryId: String,
+        resourceType: ResourceType,
+        monthlyQuantity: Double,
+        durationMonths: Int
+    ): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val seller = _uiState.value.countries[sellerCountryId] ?: return false
+        val marketCommodity = _uiState.value.marketCommodities[resourceType.name]
+        val agreedPrice = marketCommodity?.currentPrice ?: resourceType.defaultBasePrice
+
+        val contract = TradeEngine.createTradeContract(
+            buyerCountryId = player.id,
+            sellerCountry = seller,
+            resourceType = resourceType,
+            monthlyQuantity = monthlyQuantity,
+            marketPrice = agreedPrice,
+            durationMonths = durationMonths,
+            tariffPercent = player.taxProfile.importTariffRate
+        )
+
+        _uiState.update { current ->
+            current.copy(tradeContracts = current.tradeContracts + contract)
+        }
+        saveGame()
+        return true
+    }
+
+    fun buySpotCommodity(resourceType: ResourceType, quantityThousands: Double): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val commodity = _uiState.value.marketCommodities[resourceType.name]
+        val price = commodity?.currentPrice ?: resourceType.defaultBasePrice
+
+        val updatedPlayer = TradeEngine.buySpotCommodity(player, resourceType, quantityThousands, price) ?: return false
+
+        _uiState.update { current ->
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedPlayer) }
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun toggleResourceInventory(open: Boolean) {
+        _uiState.update { it.copy(isInventoryDialogOpen = open) }
+    }
+
+    fun toggleMonthlyReport(open: Boolean) {
+        _uiState.update { it.copy(isMonthlyReportOpen = open) }
+    }
+
+    fun startResearch(techId: String) {
+        _uiState.update { current ->
+            val research = current.researchState ?: return@update current
+            val updated = ResearchEngine.selectTechToResearch(research, techId)
+            current.copy(researchState = updated)
+        }
+        saveGame()
+    }
+
+    fun recruitScientists(count: Int = 200): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val costBillions = (count * 0.005) / 1000.0
+        if (player.treasuryBillions < costBillions) return false
+
+        _uiState.update { current ->
+            val research = current.researchState ?: return@update current
+            val updatedCountry = player.copy(treasuryBillions = player.treasuryBillions - costBillions)
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedCountry) },
+                researchState = research.copy(scientistsCount = research.scientistsCount + count)
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun recruitSoldiers(count: Int = 5000): Boolean {
+        val player = _uiState.value.playerCountry ?: return false
+        val costBillions = (count * 0.004) / 1000.0
+        if (player.treasuryBillions < costBillions) return false
+
+        _uiState.update { current ->
+            val military = current.militaryState ?: return@update current
+            val updatedCountry = player.copy(treasuryBillions = player.treasuryBillions - costBillions)
+            current.copy(
+                countries = current.countries.toMutableMap().apply { put(player.id, updatedCountry) },
+                militaryState = military.copy(activeSoldiersCount = military.activeSoldiersCount + count)
+            )
+        }
+        saveGame()
+        return true
+    }
+
+    fun adjustMilitaryBudget(personnelDeltaM: Double, maintDeltaM: Double, trainingDeltaM: Double) {
+        _uiState.update { current ->
+            val military = current.militaryState ?: return@update current
+            val updated = military.copy(
+                monthlyPersonnelBudgetMillions = (military.monthlyPersonnelBudgetMillions + personnelDeltaM).coerceAtLeast(0.5),
+                monthlyMaintenanceBudgetMillions = (military.monthlyMaintenanceBudgetMillions + maintDeltaM).coerceAtLeast(0.5),
+                monthlyTrainingBudgetMillions = (military.monthlyTrainingBudgetMillions + trainingDeltaM).coerceAtLeast(0.2)
+            )
+            current.copy(militaryState = updated)
+        }
+        saveGame()
+    }
+
+    fun adjustPublicServiceFunding(serviceType: PublicServiceType, fundingPercent: Int) {
+        _uiState.update { current ->
+            val gov = current.governmentServices ?: return@update current
+            val service = gov.services[serviceType] ?: return@update current
+            val updatedService = service.copy(fundingLevelPercent = fundingPercent.coerceIn(50, 160))
+            val updatedServices = gov.services.toMutableMap().apply { put(serviceType, updatedService) }
+            current.copy(governmentServices = gov.copy(services = updatedServices))
+        }
+        saveGame()
+    }
+
+    fun previewPolicyChange(policyNameAr: String, deltaRatePercent: Double) {
+        val player = _uiState.value.playerCountry ?: return
+        val preview = EconomyEngine.previewPolicyChange(player, policyNameAr, deltaRatePercent)
+        _uiState.update { it.copy(activePolicyPreview = preview) }
+    }
+
+    fun dismissPolicyPreview() {
+        _uiState.update { it.copy(activePolicyPreview = null) }
+    }
+
+    fun useGemsForSpeedup(months: Int = 1, gemCost: Int = 15): Boolean {
+        val currentGems = _uiState.value.playerGems
+        if (currentGems < gemCost) return false
+
+        _uiState.update { current ->
+            val updatedDomestic = current.domesticProjects.map { proj ->
+                if (proj.status == ProjectStatus.UNDER_CONSTRUCTION) {
+                    val rem = (proj.remainingMonths - months).coerceAtLeast(0)
+                    proj.copy(
+                        remainingMonths = rem,
+                        isCompleted = rem == 0,
+                        status = if (rem == 0) ProjectStatus.COMPLETED else ProjectStatus.UNDER_CONSTRUCTION
+                    )
+                } else proj
+            }
+            current.copy(
+                playerGems = currentGems - gemCost,
+                domesticProjects = updatedDomestic
             )
         }
         saveGame()

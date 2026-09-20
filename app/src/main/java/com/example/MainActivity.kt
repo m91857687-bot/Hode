@@ -21,14 +21,21 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.NavigationTab
 import com.example.ui.components.BottomGameNav
 import com.example.ui.components.EventDialog
+import com.example.ui.components.MonthlyReportDialog
 import com.example.ui.components.NegotiationDialog
+import com.example.ui.components.PolicyPreviewDialog
+import com.example.ui.components.ResourceInventorySheet
 import com.example.ui.components.TopGameBar
 import com.example.ui.screens.CompaniesScreen
 import com.example.ui.screens.CountrySelectionScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.EconomyScreen
+import com.example.ui.screens.GovernmentScreen
+import com.example.ui.screens.IndustryScreen
 import com.example.ui.screens.InfluenceScreen
 import com.example.ui.screens.InvestmentScreen
+import com.example.ui.screens.MilitaryScreen
+import com.example.ui.screens.ResearchScreen
 import com.example.ui.screens.WorldMapScreen
 import com.example.ui.theme.CommandDarkBg
 import com.example.ui.theme.MyApplicationTheme
@@ -77,7 +84,8 @@ fun StatecraftGameApp(
                 state = state,
                 onSpeedChange = { viewModel.setGameSpeed(it) },
                 onAdvanceMonth = { viewModel.advanceMonthManual() },
-                onOpenDossier = { viewModel.selectCountryForDossier(it) }
+                onOpenDossier = { viewModel.selectCountryForDossier(it) },
+                onOpenInventory = { viewModel.toggleResourceInventory(true) }
             )
         },
         bottomBar = {
@@ -112,14 +120,43 @@ fun StatecraftGameApp(
                         viewModel.improveRelations(targetId)
                     }
                 )
-                NavigationTab.STATE -> DashboardScreen(
+                NavigationTab.GOVERNMENT, NavigationTab.STATE -> GovernmentScreen(
                     state = state,
-                    onNavigateTab = { viewModel.setTab(it) }
+                    onAdjustServiceFunding = { serviceType, funding ->
+                        viewModel.adjustPublicServiceFunding(serviceType, funding)
+                    },
+                    onTaxRateChange = { newProfile ->
+                        viewModel.updateTaxProfile(newProfile)
+                    },
+                    onPreviewPolicy = { name, delta ->
+                        viewModel.previewPolicyChange(name, delta)
+                    }
                 )
                 NavigationTab.ECONOMY -> EconomyScreen(
                     state = state,
                     onTaxRateChange = { viewModel.updateTaxRate(it) },
                     onPayDownDebt = { viewModel.payDownNationalDebt(it) }
+                )
+                NavigationTab.INDUSTRY -> IndustryScreen(
+                    state = state,
+                    onUpgradeFactory = { factoryId ->
+                        viewModel.upgradeFactory(factoryId)
+                    },
+                    onPrivatizeFactory = { factoryId ->
+                        viewModel.privatizeFactory(factoryId)
+                    },
+                    onBuildFactory = { type ->
+                        viewModel.buildFactory(type)
+                    }
+                )
+                NavigationTab.RESEARCH -> ResearchScreen(
+                    state = state,
+                    onStartResearch = { techId ->
+                        viewModel.startResearch(techId)
+                    },
+                    onRecruitScientists = {
+                        viewModel.recruitScientists(200)
+                    }
                 )
                 NavigationTab.INVESTMENTS -> InvestmentScreen(
                     state = state,
@@ -127,6 +164,15 @@ fun StatecraftGameApp(
                     onOpenNegotiation = { viewModel.openNegotiation(it) },
                     onStartOutboundInvestment = { targetId, assetType, cap, title ->
                         viewModel.startOutboundInvestment(targetId, assetType, cap, title)
+                    }
+                )
+                NavigationTab.MILITARY -> MilitaryScreen(
+                    state = state,
+                    onAdjustBudget = { personnel, maint, training ->
+                        viewModel.adjustMilitaryBudget(personnel, maint, training)
+                    },
+                    onRecruitSoldiers = {
+                        viewModel.recruitSoldiers(5000)
                     }
                 )
                 NavigationTab.COMPANIES -> CompaniesScreen(
@@ -144,11 +190,15 @@ fun StatecraftGameApp(
                         viewModel.expandCompanyProduction(companyId, cost)
                     }
                 )
-                NavigationTab.INFLUENCE -> InfluenceScreen(
+                NavigationTab.INFLUENCE, NavigationTab.DIPLOMACY_TRADE, NavigationTab.STATS -> InfluenceScreen(
                     state = state,
                     onImproveRelations = { targetId ->
                         viewModel.improveRelations(targetId)
                     }
+                )
+                else -> DashboardScreen(
+                    state = state,
+                    onNavigateTab = { viewModel.setTab(it) }
                 )
             }
 
@@ -172,6 +222,38 @@ fun StatecraftGameApp(
                     onAccept = { viewModel.acceptForeignOffer(offer) },
                     onReject = { viewModel.rejectForeignOffer(offer) },
                     onClose = { viewModel.closeNegotiation() }
+                )
+            }
+
+            // 5. Strategic Resource Inventory Sheet Modal
+            if (state.isInventoryDialogOpen) {
+                ResourceInventorySheet(
+                    state = state,
+                    onDismiss = { viewModel.toggleResourceInventory(false) },
+                    onBuyCommodity = { resType, quantity ->
+                        viewModel.buySpotCommodity(resType, quantity)
+                    }
+                )
+            }
+
+            // 6. Monthly Cabinet Report Modal
+            if (state.isMonthlyReportOpen && state.monthlyReport != null) {
+                MonthlyReportDialog(
+                    report = state.monthlyReport!!,
+                    onDismiss = { viewModel.toggleMonthlyReport(false) }
+                )
+            }
+
+            // 7. "What-If" Policy Impact Preview Modal
+            state.activePolicyPreview?.let { preview ->
+                PolicyPreviewDialog(
+                    preview = preview,
+                    onConfirm = {
+                        viewModel.dismissPolicyPreview()
+                    },
+                    onDismiss = {
+                        viewModel.dismissPolicyPreview()
+                    }
                 )
             }
         }

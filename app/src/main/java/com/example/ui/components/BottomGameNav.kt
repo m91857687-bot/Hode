@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,20 +36,33 @@ fun BottomGameNav(
     onTabSelected: (NavigationTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val primaryTabs = listOf(
+        NavigationTab.MAP,
+        NavigationTab.GOVERNMENT,
+        NavigationTab.ECONOMY,
+        NavigationTab.INDUSTRY,
+        NavigationTab.RESEARCH,
+        NavigationTab.INVESTMENTS,
+        NavigationTab.MILITARY,
+        NavigationTab.DIPLOMACY_TRADE
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(CommandSurface)
             .border(1.dp, CommandBorder, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .padding(horizontal = 4.dp, vertical = 6.dp)
+            .horizontalScroll(rememberScrollState())
             .testTag("bottom_game_nav"),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        NavigationTab.values().forEach { tab ->
+        primaryTabs.forEach { tab ->
             val isSelected = (currentTab == tab)
             Box(
                 modifier = Modifier
+                    .padding(horizontal = 4.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (isSelected) TacticalCyan.copy(alpha = 0.15f) else Color.Transparent)
                     .clickable { onTabSelected(tab) }
@@ -61,7 +76,7 @@ fun BottomGameNav(
                     Text(
                         text = tab.titleAr,
                         color = if (isSelected) TacticalCyan else TextSecondary,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
                 }

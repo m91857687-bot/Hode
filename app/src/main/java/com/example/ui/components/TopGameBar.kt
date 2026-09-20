@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.engine.EconomyScaleEngine
 import com.example.engine.GameEngine
 import com.example.model.GameSpeed
 import com.example.model.GameState
@@ -54,6 +57,7 @@ fun TopGameBar(
     onSpeedChange: (GameSpeed) -> Unit,
     onAdvanceMonth: () -> Unit,
     onOpenDossier: (String) -> Unit,
+    onOpenInventory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val player = state.playerCountry ?: return
@@ -65,10 +69,10 @@ fun TopGameBar(
             .fillMaxWidth()
             .background(CommandSurface)
             .border(1.dp, CommandBorder, RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .testTag("top_game_bar")
     ) {
-        // Upper row: Country & National stats
+        // Upper row: Country badge, Gems, and Date
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,29 +99,89 @@ fun TopGameBar(
                         maxLines = 1
                     )
                     Text(
-                        text = "⭐ قوة الدولة: ${player.nationalPowerScore}",
+                        text = "⭐ قوة: ${player.nationalPowerScore} • ${EconomyScaleEngine.getCountryScaleTier(player).titleAr}",
                         color = SovereignGold,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
 
-            // Date & Calendar
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(TacticalCyan.copy(alpha = 0.12f))
-                    .border(1.dp, TacticalCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "🗓️ ${state.dateFormatted}",
-                    color = TacticalCyan,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            // Gems & Date
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Gems
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF2E1A47))
+                        .border(1.dp, Color(0xFF9C27B0).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                        .testTag("player_gems_badge")
+                ) {
+                    Text(
+                        text = "💎 ${state.playerGems}",
+                        color = Color(0xFFE1BEE7),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Date & Calendar
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(TacticalCyan.copy(alpha = 0.12f))
+                        .border(1.dp, TacticalCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "🗓️ ${state.dateFormatted}",
+                        color = TacticalCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Middle row: Resource Bar (Section 5: 💰 Money, 💎 Gems, 🛢️ Oil, 🔥 Gas, ⛏️ Iron, 🌾 Wheat, ⚡ Energy)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(CommandSurfaceElevated)
+                .clickable { onOpenInventory() }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ResourceItemChip(icon = "💰", label = EconomyScaleEngine.formatCurrency(player.treasuryBillions))
+            Spacer(modifier = Modifier.width(8.dp))
+            ResourceItemChip(icon = "🛢️", label = "${(state.resourceInventory["OIL"] ?: 650.0).toInt()}k")
+            Spacer(modifier = Modifier.width(8.dp))
+            ResourceItemChip(icon = "🔥", label = "${(state.resourceInventory["GAS"] ?: 420.0).toInt()}k")
+            Spacer(modifier = Modifier.width(8.dp))
+            ResourceItemChip(icon = "🪨", label = "${(state.resourceInventory["IRON"] ?: 980.0).toInt()}k")
+            Spacer(modifier = Modifier.width(8.dp))
+            ResourceItemChip(icon = "🌾", label = "${(state.resourceInventory["WHT"] ?: 1800.0).toInt()}k")
+            Spacer(modifier = Modifier.width(8.dp))
+            val energyShortage = state.energyGrid?.hasShortage == true
+            ResourceItemChip(
+                icon = "⚡",
+                label = "${(state.energyGrid?.currentProductionGw ?: 45.0).toInt()} GW",
+                color = if (energyShortage) CrisisRed else TacticalCyan
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "📦 المخزون ⇱",
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -130,23 +194,23 @@ fun TopGameBar(
         ) {
             // Economic Indicators (Treasury & GDP)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Treasury
+                // Treasury Net
                 Column(modifier = Modifier.padding(end = 12.dp)) {
                     Text(
-                        text = "الخزينة",
+                        text = "الخزينة العامة",
                         color = TextSecondary,
                         fontSize = 10.sp
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "$${String.format(Locale.US, "%.1f", player.treasuryBillions)}B",
+                            text = EconomyScaleEngine.formatCurrency(player.treasuryBillions),
                             color = SovereignGold,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (monthlyCashflow >= 0) "+$${String.format(Locale.US, "%.1f", monthlyCashflow)}" else "-$${String.format(Locale.US, "%.1f", -monthlyCashflow)}",
+                            text = if (monthlyCashflow >= 0) "+${String.format(Locale.US, "%.1f", monthlyCashflow * 1000)}M$" else "-${String.format(Locale.US, "%.1f", -monthlyCashflow * 1000)}M$",
                             color = if (monthlyCashflow >= 0) GrowthGreen else CrisisRed,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
@@ -157,15 +221,15 @@ fun TopGameBar(
                 // GDP
                 Column {
                     Text(
-                        text = "الناتج المحلي (GDP)",
+                        text = "الناتج (GDP)",
                         color = TextSecondary,
                         fontSize = 10.sp
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "$${String.format(Locale.US, "%.0f", player.gdpBillions)}B",
+                            text = EconomyScaleEngine.formatCurrency(player.gdpBillions),
                             color = TacticalCyan,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -178,14 +242,14 @@ fun TopGameBar(
                 }
             }
 
-            // Speed Control Buttons (Pause, 1x, 2x, 5x, Next Month manual)
+            // Speed Control Buttons (Pause, 1x, 2x, 5x, 10x, Next Month manual)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
                     .background(CommandSurfaceElevated)
                     .border(1.dp, CommandBorder, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .padding(horizontal = 2.dp, vertical = 2.dp)
             ) {
                 SpeedButton(
                     isSelected = state.gameSpeed == GameSpeed.PAUSED,
@@ -211,13 +275,19 @@ fun TopGameBar(
                     onClick = { onSpeedChange(GameSpeed.SPEED_5X) },
                     testTag = "speed_5x_btn"
                 )
+                SpeedButton(
+                    isSelected = state.gameSpeed == GameSpeed.SPEED_10X,
+                    label = "10x",
+                    onClick = { onSpeedChange(GameSpeed.SPEED_10X) },
+                    testTag = "speed_10x_btn"
+                )
                 // Step month button
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .clickable { onAdvanceMonth() }
-                        .padding(4.dp)
+                        .padding(2.dp)
                         .testTag("step_month_btn"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -225,11 +295,29 @@ fun TopGameBar(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "التقدم شهر",
                         tint = TacticalCyan,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResourceItemChip(
+    icon: String,
+    label: String,
+    color: Color = TextPrimary
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text = icon, fontSize = 12.sp)
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            text = label,
+            color = color,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -242,17 +330,17 @@ private fun SpeedButton(
 ) {
     Box(
         modifier = Modifier
-            .padding(horizontal = 2.dp)
+            .padding(horizontal = 1.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isSelected) TacticalCyan else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .padding(horizontal = 5.dp, vertical = 3.dp)
             .testTag(testTag),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             color = if (isSelected) Color.Black else TextSecondary
         )
